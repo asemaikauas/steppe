@@ -1,6 +1,8 @@
 import express from 'express';
 import { ArticleController } from '../controllers/articleController';
 import { VoiceService } from '../services/voiceService';
+import { VideoService } from '../services/videoService';
+import { Request, Response } from 'express';
 
 const router = express.Router();
 const articleController = new ArticleController();
@@ -91,6 +93,48 @@ router.get('/voices', async (req, res) => {
         console.error('Get voices error:', error);
         res.status(500).json({
             error: 'Failed to fetch voices',
+            message: error.message
+        });
+    }
+});
+
+// Тестовый эндпоинт для субтитров
+router.post('/test-subtitles', async (req: Request, res: Response) => {
+    try {
+        const { script } = req.body;
+
+        if (!script) {
+            return res.status(400).json({
+                error: 'Missing required field',
+                message: 'Please provide script'
+            });
+        }
+
+        console.log('Testing subtitle generation...');
+
+        const videoService = new VideoService();
+
+        // Создаем временный ID для тестирования
+        const testId = 'test-' + Date.now();
+
+        // Вызываем приватный метод через рефлексию для тестирования
+        const subtitlePath = await (videoService as any).generateSubtitles(script, testId);
+
+        // Читаем содержимое файла
+        const fs = require('fs');
+        const subtitleContent = fs.readFileSync(subtitlePath, 'utf8');
+
+        res.json({
+            success: true,
+            subtitlePath,
+            content: subtitleContent,
+            message: 'Subtitle generation completed successfully'
+        });
+
+    } catch (error: any) {
+        console.error('Test subtitle generation error:', error);
+        res.status(500).json({
+            error: 'Subtitle generation failed',
             message: error.message
         });
     }

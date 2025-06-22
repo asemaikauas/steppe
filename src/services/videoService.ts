@@ -137,37 +137,27 @@ export class VideoService {
             const words = cleanScript.split(' ');
             const chunks: string[] = [];
 
-            // Создаем чанки по 6-8 слов для 2 строк субтитров
-            for (let i = 0; i < words.length; i += 8) {
-                const chunk = words.slice(i, i + 8).join(' ');
+            // Создаем чанки по 2-3 слова для БЫСТРОЙ смены (как в TikTok)
+            for (let i = 0; i < words.length; i += 3) {
+                const chunk = words.slice(i, i + 3).join(' ');
                 chunks.push(chunk);
             }
 
             // Создаем SRT файл
             let srtContent = '';
-            const chunkDuration = 4; // 4 секунды на chunk
+            const chunkDuration = 2; // 2 секунды на chunk - быстрее!
 
             chunks.forEach((chunk, index) => {
                 const startTime = this.formatSRTTime(index * chunkDuration);
                 const endTime = this.formatSRTTime((index + 1) * chunkDuration);
 
-                // Разбиваем чанк на 2 строки максимум
-                const chunkWords = chunk.split(' ');
-                const midPoint = Math.ceil(chunkWords.length / 2);
-                const line1 = chunkWords.slice(0, midPoint).join(' ');
-                const line2 = chunkWords.slice(midPoint).join(' ');
-
                 srtContent += `${index + 1}\n`;
                 srtContent += `${startTime} --> ${endTime}\n`;
-                if (line2.trim()) {
-                    srtContent += `${line1}\n${line2}\n\n`;
-                } else {
-                    srtContent += `${line1}\n\n`;
-                }
+                srtContent += `${chunk}\n\n`; // Одна строка!
             });
 
             fs.writeFileSync(subtitlePath, srtContent, 'utf8');
-            console.log(`✅ Subtitles generated: ${chunks.length} segments`);
+            console.log(`✅ Subtitles generated: ${chunks.length} fast-sync segments (2s each)`);
 
             return subtitlePath;
         } catch (error: any) {
@@ -222,7 +212,7 @@ export class VideoService {
                 `-i "${params.backgroundPath}"`,
                 `-i "${params.audioPath}"`,
                 `-t ${params.duration}`,
-                `-filter_complex "[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}[scaled];[scaled]subtitles='${params.subtitlePath}':force_style='FontName=Arial,FontSize=14,PrimaryColour=&Hffffff,OutlineColour=&H000000,Outline=1,Bold=0,MarginV=120,MarginL=40,Alignment=1'[video]"`,
+                `-filter_complex "[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}[scaled];[scaled]subtitles='${params.subtitlePath}':force_style='FontName=Inter,FontSize=14,PrimaryColour=&Hffffff,Outline=1,Bold=0,MarginV=50,Alignment=1'[video]"`,
                 '-map "[video]"',
                 '-map 1:a',
                 '-c:v libx264',
@@ -618,7 +608,7 @@ export class VideoService {
                 `-i "${concatFile}"`,
                 `-i "${params.audioPath}"`,
                 `-t ${params.duration}`,
-                `-filter_complex "[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}[scaled];[scaled]subtitles='${params.subtitlePath}':force_style='FontName=Arial,FontSize=14,PrimaryColour=&Hffffff,OutlineColour=&H000000,Outline=1,Bold=0,MarginV=120,MarginL=40,Alignment=1'[video]"`,
+                `-filter_complex "[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}[scaled];[scaled]subtitles='${params.subtitlePath}':force_style='FontName=Inter,FontSize=16,PrimaryColour=&Hffffff,OutlineColour=&H000000,Outline=1,Bold=0,MarginV=100,Alignment=2'[video]"`,
                 '-map "[video]"',
                 '-map 1:a',
                 '-c:v libx264',
