@@ -175,6 +175,55 @@ export class VideoService {
         return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')},${String(milliseconds).padStart(3, '0')}`;
     }
 
+    // Общий метод для создания FFmpeg команд
+    private buildFFmpegCommand(params: {
+        inputs: string[];
+        duration: number;
+        resolution: string;
+        subtitlePath?: string | null;
+        outputPath: string;
+        videoFilter?: string;
+        isDynamic?: boolean;
+    }): string {
+        const [width, height] = params.resolution.split('x');
+
+        let command = ['ffmpeg -y'];
+
+        // Добавляем входные файлы
+        if (params.isDynamic) {
+            command.push('-f concat -safe 0');
+        }
+        params.inputs.forEach(input => command.push(`-i "${input}"`));
+
+        // Длительность
+        command.push(`-t ${params.duration}`);
+
+        // Видео фильтры
+        if (params.subtitlePath) {
+            const subtitleFilter = `subtitles='${params.subtitlePath}':force_style='FontName=Inter,FontSize=14,PrimaryColour=&Hffffff,Outline=0,Bold=0,MarginV=50,Alignment=1'`;
+            const scaleFilter = `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}[scaled]`;
+            command.push(`-filter_complex "${scaleFilter};[scaled]${subtitleFilter}[video]"`);
+            command.push('-map "[video]"', '-map 1:a');
+        } else if (params.videoFilter) {
+            command.push(`-vf "${params.videoFilter}"`);
+        } else {
+            command.push(`-vf "scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}"`);
+        }
+
+        // Кодеки и настройки
+        command.push(
+            '-c:v libx264',
+            '-c:a aac',
+            '-b:v 2M',
+            '-b:a 128k',
+            '-preset fast',
+            '-movflags +faststart',
+            `"${params.outputPath}"`
+        );
+
+        return command.join(' ');
+    }
+
     private async assembleVideoWithFFmpeg(params: {
         backgroundPath: string;
         audioPath: string;
@@ -188,45 +237,14 @@ export class VideoService {
 
         const outputPath = path.join(this.outputDir, `tiktok_${params.videoId}.${params.outputFormat}`);
 
-        // Базовая команда FFmpeg
-        let ffmpegCommand = [
-            'ffmpeg -y', // Перезаписывать выходной файл
-            `-i "${params.backgroundPath}"`, // Входное видео
-            `-i "${params.audioPath}"`, // Входное аудио
-            `-t ${params.duration}`, // Длительность
-            `-vf "scale=${params.resolution}:force_original_aspect_ratio=increase,crop=${params.resolution.replace('x', ':')}"`, // Масштабирование для TikTok
-            '-c:v libx264', // Видео кодек
-            '-c:a aac', // Аудио кодек
-            '-b:v 2M', // Битрейт видео
-            '-b:a 128k', // Битрейт аудио
-            '-preset fast', // Скорость кодирования
-            '-movflags +faststart' // Быстрый старт для веб
-        ];
+        const command = this.buildFFmpegCommand({
+            inputs: [params.backgroundPath, params.audioPath],
+            duration: params.duration,
+            resolution: params.resolution,
+            subtitlePath: params.subtitlePath,
+            outputPath
+        });
 
-        // Добавляем субтитры если есть
-        if (params.subtitlePath) {
-            // Используем filter_complex для наложения субтитров
-            const [width, height] = params.resolution.split('x');
-            ffmpegCommand = [
-                'ffmpeg -y',
-                `-i "${params.backgroundPath}"`,
-                `-i "${params.audioPath}"`,
-                `-t ${params.duration}`,
-                `-filter_complex "[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}[scaled];[scaled]subtitles='${params.subtitlePath}':force_style='FontName=Inter,FontSize=14,PrimaryColour=&Hffffff,Outline=1,Bold=0,MarginV=50,Alignment=1'[video]"`,
-                '-map "[video]"',
-                '-map 1:a',
-                '-c:v libx264',
-                '-c:a aac',
-                '-b:v 2M',
-                '-b:a 128k',
-                '-preset fast',
-                '-movflags +faststart'
-            ];
-        }
-
-        ffmpegCommand.push(`"${outputPath}"`);
-
-        const command = ffmpegCommand.join(' ');
         console.log(`🎬 FFmpeg command: ${command.substring(0, 100)}...`);
 
         try {
@@ -571,7 +589,6 @@ export class VideoService {
         console.log(`🔧 Assembling dynamic video with FFmpeg...`);
 
         const outputPath = path.join(this.outputDir, `dynamic_${params.videoId}.${params.outputFormat}`);
-        const [width, height] = params.resolution.split('x');
 
         // Создаем concat файл для FFmpeg
         const concatFile = path.join(this.tempDir, `concat_${params.videoId}.txt`);
@@ -584,45 +601,15 @@ export class VideoService {
 
         fs.writeFileSync(concatFile, concatContent);
 
-        // Команда FFmpeg для динамического видео
-        let ffmpegCommand = [
-            'ffmpeg -y',
-            '-f concat -safe 0',
-            `-i "${concatFile}"`,
-            `-i "${params.audioPath}"`,
-            `-t ${params.duration}`,
-            `-vf "scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}"`,
-            '-c:v libx264',
-            '-c:a aac',
-            '-b:v 2M',
-            '-b:a 128k',
-            '-preset fast',
-            '-movflags +faststart'
-        ];
+        const command = this.buildFFmpegCommand({
+            inputs: [concatFile, params.audioPath],
+            duration: params.duration,
+            resolution: params.resolution,
+            subtitlePath: params.subtitlePath,
+            outputPath,
+            isDynamic: true
+        });
 
-        // Добавляем субтитры если есть
-        if (params.subtitlePath) {
-            ffmpegCommand = [
-                'ffmpeg -y',
-                '-f concat -safe 0',
-                `-i "${concatFile}"`,
-                `-i "${params.audioPath}"`,
-                `-t ${params.duration}`,
-                `-filter_complex "[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}[scaled];[scaled]subtitles='${params.subtitlePath}':force_style='FontName=Inter,FontSize=16,PrimaryColour=&Hffffff,OutlineColour=&H000000,Outline=1,Bold=0,MarginV=100,Alignment=2'[video]"`,
-                '-map "[video]"',
-                '-map 1:a',
-                '-c:v libx264',
-                '-c:a aac',
-                '-b:v 2M',
-                '-b:a 128k',
-                '-preset fast',
-                '-movflags +faststart'
-            ];
-        }
-
-        ffmpegCommand.push(`"${outputPath}"`);
-
-        const command = ffmpegCommand.join(' ');
         console.log(`🎬 FFmpeg dynamic command: ${command.substring(0, 100)}...`);
 
         try {
