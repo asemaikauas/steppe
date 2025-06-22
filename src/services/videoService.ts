@@ -156,8 +156,17 @@ export class VideoService {
                 srtContent += `${chunk}\n\n`; // Одна строка!
             });
 
+            // ВАЖНО: Добавляем пустой сегмент в конце чтобы субтитры не обрезались
+            const totalDuration = chunks.length * chunkDuration;
+            if (totalDuration < 60) { // Максимум 60 секунд
+                const endTime = this.formatSRTTime(Math.max(totalDuration + 5, 30)); // Минимум 30 сек
+                srtContent += `${chunks.length + 1}\n`;
+                srtContent += `${this.formatSRTTime(totalDuration)} --> ${endTime}\n`;
+                srtContent += `\n\n`; // Пустой сегмент для продления
+            }
+
             fs.writeFileSync(subtitlePath, srtContent, 'utf8');
-            console.log(`✅ Subtitles generated: ${chunks.length} fast-sync segments (2s each)`);
+            console.log(`✅ Subtitles generated: ${chunks.length} fast-sync segments (2s each, extended to ${Math.max(totalDuration + 5, 30)}s)`);
 
             return subtitlePath;
         } catch (error: any) {
@@ -195,19 +204,23 @@ export class VideoService {
         }
         params.inputs.forEach(input => command.push(`-i "${input}"`));
 
-        // Длительность
+        // ВАЖНО: Используем длительность аудио, а не фонового видео
         command.push(`-t ${params.duration}`);
+
+        // Создаем водяной знак STEPPE
+        const steppeWatermark = `drawtext=text='STEPPE':fontfile=/System/Library/Fonts/Arial.ttf:fontsize=60:fontcolor=black:alpha=0.9:x=(w-text_w)/2:y=80:box=1:boxcolor=black@0.3:boxborderw=5`;
 
         // Видео фильтры
         if (params.subtitlePath) {
             const subtitleFilter = `subtitles='${params.subtitlePath}':force_style='FontName=Inter,FontSize=14,PrimaryColour=&Hffffff,Outline=0,Bold=0,MarginV=50,Alignment=1'`;
             const scaleFilter = `[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}[scaled]`;
-            command.push(`-filter_complex "${scaleFilter};[scaled]${subtitleFilter}[video]"`);
+            // Комбинируем: масштабирование → водяной знак → субтитры
+            command.push(`-filter_complex "${scaleFilter};[scaled]${steppeWatermark}[watermarked];[watermarked]${subtitleFilter}[video]"`);
             command.push('-map "[video]"', '-map 1:a');
         } else if (params.videoFilter) {
-            command.push(`-vf "${params.videoFilter}"`);
+            command.push(`-vf "${params.videoFilter},${steppeWatermark}"`);
         } else {
-            command.push(`-vf "scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}"`);
+            command.push(`-vf "scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},${steppeWatermark}"`);
         }
 
         // Кодеки и настройки
@@ -218,6 +231,8 @@ export class VideoService {
             '-b:a 128k',
             '-preset fast',
             '-movflags +faststart',
+            // ВАЖНО: Зацикливаем видео если оно короче аудио
+            '-stream_loop -1',
             `"${params.outputPath}"`
         );
 
@@ -464,58 +479,162 @@ export class VideoService {
     }
 
     private extractSearchQuery(text: string, keyPoints: string[]): string {
-        // Словарь для перевода ключевых слов
+        // Расширенный словарь для перевода ключевых слов
         const translations: { [key: string]: string } = {
-            'здоровье': 'health',
+            // Здоровье и медицина
+            'здоровье': 'health medical',
             'спорт': 'sport fitness',
             'бег': 'running jogging',
-            'жара': 'summer heat',
-            'сердце': 'heart cardio',
-            'тренировка': 'workout training',
-            'питание': 'nutrition food',
-            'исследование': 'research science',
-            'ученые': 'scientists research',
-            'алматы': 'almaty city',
-            'казахстан': 'kazakhstan',
-            'загрязнение': 'pollution environment',
-            'воздух': 'air pollution',
-            'образование': 'education school',
-            'технологии': 'technology innovation',
-            'ИИ': 'artificial intelligence AI',
-            'дебаты': 'debate discussion',
-            'студенты': 'students university',
-            'молодежь': 'youth people'
+            'жара': 'summer heat weather',
+            'сердце': 'heart cardio medical',
+            'тренировка': 'workout training gym',
+            'питание': 'nutrition food healthy',
+            'болезнь': 'illness disease medical',
+            'врач': 'doctor medical hospital',
+            'лекарство': 'medicine pharmacy medical',
+
+            // Наука и исследования
+            'исследование': 'research science laboratory',
+            'ученые': 'scientists research laboratory',
+            'наука': 'science research technology',
+            'эксперимент': 'experiment laboratory science',
+            'данные': 'data analysis research',
+
+            // География и места
+            'алматы': 'almaty kazakhstan city urban',
+            'казахстан': 'kazakhstan central asia',
+            'астана': 'astana nur-sultan kazakhstan',
+            'город': 'city urban buildings',
+            'улица': 'street road urban',
+            'парк': 'park nature green',
+            'горы': 'mountains landscape nature',
+
+            // Экология и окружающая среда
+            'загрязнение': 'pollution environment ecology',
+            'воздух': 'air pollution environment',
+            'экология': 'ecology environment nature',
+            'природа': 'nature landscape environment',
+            'климат': 'climate weather environment',
+            'мусор': 'waste garbage pollution',
+
+            // Образование
+            'образование': 'education school university',
+            'школа': 'school education children',
+            'университет': 'university college education',
+            'студенты': 'students university education',
+            'учеба': 'study education learning',
+            'экзамен': 'exam test education',
+
+            // Технологии
+            'технологии': 'technology innovation digital',
+            'ИИ': 'artificial intelligence AI technology',
+            'компьютер': 'computer technology digital',
+            'интернет': 'internet technology digital',
+            'смартфон': 'smartphone mobile technology',
+            'приложение': 'app mobile technology',
+
+            // Общество и политика
+            'дебаты': 'debate discussion politics',
+            'политика': 'politics government society',
+            'выборы': 'elections voting politics',
+            'правительство': 'government politics official',
+            'закон': 'law legal government',
+
+            // Люди и социум
+            'молодежь': 'youth young people',
+            'дети': 'children kids family',
+            'семья': 'family people home',
+            'работа': 'work office business',
+            'бизнес': 'business office corporate',
+            'деньги': 'money finance business',
+
+            // Культура и развлечения
+            'культура': 'culture art tradition',
+            'искусство': 'art culture creative',
+            'музыка': 'music concert performance',
+            'театр': 'theater performance culture',
+            'кино': 'cinema movie entertainment',
+            'фестиваль': 'festival celebration culture',
+
+            // Транспорт
+            'транспорт': 'transport traffic urban',
+            'автомобиль': 'car vehicle traffic',
+            'автобус': 'bus public transport',
+            'метро': 'subway metro transport',
+            'дорога': 'road traffic transport',
+
+            // Еда и рестораны
+            'еда': 'food restaurant cooking',
+            'ресторан': 'restaurant food dining',
+            'кафе': 'cafe coffee restaurant',
+            'готовка': 'cooking food kitchen',
+
+            // Погода и время года
+            'зима': 'winter snow cold',
+            'лето': 'summer sun hot',
+            'весна': 'spring flowers nature',
+            'осень': 'autumn fall leaves',
+            'дождь': 'rain weather storm',
+            'снег': 'snow winter cold'
         };
 
-        // Ищем ключевые слова в тексте
-        const words = text.toLowerCase().split(' ');
+        // Анализируем текст более глубоко
+        const words = text.toLowerCase().split(/[\s.,!?]+/).filter(w => w.length > 2);
         let searchTerms: string[] = [];
+        let contextTerms: string[] = [];
 
-        // Добавляем переводы найденных ключевых слов
+        // Добавляем прямые переводы
         words.forEach(word => {
             if (translations[word]) {
                 searchTerms.push(translations[word]);
             }
         });
 
+        // Анализируем контекст для более точного поиска
+        if (text.toLowerCase().includes('загрязн') || text.toLowerCase().includes('эколог')) {
+            contextTerms.push('pollution environment');
+        }
+        if (text.toLowerCase().includes('здоров') || text.toLowerCase().includes('медицин')) {
+            contextTerms.push('health medical');
+        }
+        if (text.toLowerCase().includes('образован') || text.toLowerCase().includes('школ') || text.toLowerCase().includes('студент')) {
+            contextTerms.push('education school');
+        }
+        if (text.toLowerCase().includes('технолог') || text.toLowerCase().includes('цифров') || text.toLowerCase().includes('ИИ')) {
+            contextTerms.push('technology digital');
+        }
+        if (text.toLowerCase().includes('политик') || text.toLowerCase().includes('правительств') || text.toLowerCase().includes('выбор')) {
+            contextTerms.push('politics government');
+        }
+
         // Добавляем релевантные keyPoints
         keyPoints.forEach(point => {
             const pointLower = point.toLowerCase();
-            if (text.toLowerCase().includes(pointLower) || words.some(word => pointLower.includes(word))) {
+            if (text.toLowerCase().includes(pointLower)) {
                 if (translations[pointLower]) {
                     searchTerms.push(translations[pointLower]);
-                } else {
+                } else if (pointLower.length > 2) {
                     searchTerms.push(point);
                 }
             }
         });
 
-        // Fallback на общие термины
-        if (searchTerms.length === 0) {
-            searchTerms = ['lifestyle', 'modern life', 'city'];
+        // Объединяем все термины
+        const allTerms = [...searchTerms, ...contextTerms];
+
+        // Fallback на более специфичные термины в зависимости от контекста
+        if (allTerms.length === 0) {
+            if (text.toLowerCase().includes('казахстан') || text.toLowerCase().includes('алматы')) {
+                allTerms.push('kazakhstan city urban');
+            } else if (text.toLowerCase().includes('люди') || text.toLowerCase().includes('человек')) {
+                allTerms.push('people society');
+            } else {
+                allTerms.push('modern life urban');
+            }
         }
 
-        return searchTerms.slice(0, 3).join(' '); // Максимум 3 термина
+        // Возвращаем максимум 4 термина для более точного поиска
+        return allTerms.slice(0, 4).join(' ');
     }
 
     private async downloadSegmentMedia(segments: Array<{
@@ -538,14 +657,40 @@ export class VideoService {
             duration: number;
         }> = [];
 
+        // Импортируем MediaService для реального поиска
+        const { MediaService } = await import('./mediaService');
+        const mediaService = new MediaService();
+
         for (let i = 0; i < segments.length; i++) {
             const segment = segments[i];
             const segmentPath = path.join(this.tempDir, `segment_${videoId}_${i}.mp4`);
 
             try {
-                // Простая заглушка - копируем одно и то же видео
-                // В реальности здесь будет интеграция с MediaService для поиска релевантного контента
-                await execAsync(`cp test_video.mp4 "${segmentPath}"`);
+                console.log(`   🔍 Searching for: "${segment.searchQuery}"`);
+
+                // Ищем релевантные видео через MediaService
+                const searchResults = await mediaService.searchVideos(segment.searchQuery, 3);
+
+                if (searchResults.length > 0) {
+                    // Берем первое подходящее видео
+                    const selectedVideo = searchResults[0];
+                    console.log(`   📹 Found: ${selectedVideo.tags?.join(', ') || 'No tags'}`);
+
+                    // Скачиваем видео
+                    const response = await fetch(selectedVideo.url);
+                    if (response.ok) {
+                        const buffer = await response.arrayBuffer();
+                        const fs = require('fs');
+                        fs.writeFileSync(segmentPath, Buffer.from(buffer));
+
+                        console.log(`   ✅ Downloaded: ${(buffer.byteLength / 1024 / 1024).toFixed(2)} MB`);
+                    } else {
+                        throw new Error(`Failed to download video: ${response.status}`);
+                    }
+                } else {
+                    console.log(`   ⚠️ No videos found for "${segment.searchQuery}", using fallback`);
+                    throw new Error('No videos found');
+                }
 
                 mediaSegments.push({
                     searchQuery: segment.searchQuery,
@@ -555,21 +700,36 @@ export class VideoService {
                 });
 
                 console.log(`   ✅ Segment ${i + 1}: "${segment.searchQuery}" → ${path.basename(segmentPath)}`);
+
             } catch (error) {
                 console.error(`   ❌ Failed to download for "${segment.searchQuery}":`, error);
-                // Fallback - используем предыдущий сегмент или базовое видео
-                const fallbackPath = i > 0 ? mediaSegments[i - 1].localPath : 'test_video.mp4';
-                await execAsync(`cp "${fallbackPath}" "${segmentPath}"`);
 
-                mediaSegments.push({
-                    searchQuery: segment.searchQuery,
-                    localPath: segmentPath,
-                    startTime: segment.startTime,
-                    duration: segment.duration
-                });
+                // Fallback стратегия
+                try {
+                    if (i > 0 && mediaSegments[i - 1]) {
+                        // Используем предыдущий успешный сегмент
+                        await execAsync(`cp "${mediaSegments[i - 1].localPath}" "${segmentPath}"`);
+                        console.log(`   🔄 Used previous segment as fallback`);
+                    } else {
+                        // Используем базовое тестовое видео
+                        await execAsync(`cp test_video.mp4 "${segmentPath}"`);
+                        console.log(`   🔄 Used base video as fallback`);
+                    }
+
+                    mediaSegments.push({
+                        searchQuery: `${segment.searchQuery} (fallback)`,
+                        localPath: segmentPath,
+                        startTime: segment.startTime,
+                        duration: segment.duration
+                    });
+                } catch (fallbackError) {
+                    console.error(`   💥 Fallback also failed:`, fallbackError);
+                    throw new Error(`Failed to create segment ${i + 1}`);
+                }
             }
         }
 
+        console.log(`✅ Media download completed: ${mediaSegments.length} segments`);
         return mediaSegments;
     }
 

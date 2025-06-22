@@ -25,34 +25,116 @@ export interface MediaSearchResult {
 
 export class MediaService {
     private translateToEnglish(query: string): string {
-        // Простая карта для перевода ключевых слов на английский
+        // Расширенный словарь для перевода ключевых слов на английский
         const translations: { [key: string]: string } = {
-            'здоровье': 'health',
-            'спорт': 'sport',
-            'бег': 'running',
-            'жара': 'heat',
-            'марафон': 'marathon',
-            'тренировка': 'workout',
-            'образование': 'education',
-            'школа': 'school',
-            'дети': 'children',
-            'студенты': 'students',
-            'искусственный интеллект': 'artificial intelligence',
-            'ИИ': 'AI',
-            'технологии': 'technology',
-            'инновации': 'innovation',
-            'стартап': 'startup',
-            'бизнес': 'business',
-            'казахстан': 'kazakhstan',
-            'алматы': 'almaty',
-            'молодежь': 'youth',
-            'дебаты': 'debate',
-            'платформа': 'platform'
+            // Здоровье и медицина
+            'здоровье': 'health medical',
+            'спорт': 'sport fitness',
+            'бег': 'running jogging',
+            'жара': 'summer heat weather',
+            'сердце': 'heart cardio medical',
+            'тренировка': 'workout training gym',
+            'питание': 'nutrition food healthy',
+            'болезнь': 'illness disease medical',
+            'врач': 'doctor medical hospital',
+            'лекарство': 'medicine pharmacy medical',
+            'марафон': 'marathon running',
+
+            // Наука и исследования
+            'исследование': 'research science laboratory',
+            'ученые': 'scientists research laboratory',
+            'наука': 'science research technology',
+            'эксперимент': 'experiment laboratory science',
+            'данные': 'data analysis research',
+
+            // География и места
+            'алматы': 'almaty kazakhstan city urban',
+            'казахстан': 'kazakhstan central asia',
+            'астана': 'astana nur-sultan kazakhstan',
+            'город': 'city urban buildings',
+            'улица': 'street road urban',
+            'парк': 'park nature green',
+            'горы': 'mountains landscape nature',
+
+            // Экология и окружающая среда
+            'загрязнение': 'pollution environment ecology',
+            'воздух': 'air pollution environment',
+            'экология': 'ecology environment nature',
+            'природа': 'nature landscape environment',
+            'климат': 'climate weather environment',
+            'мусор': 'waste garbage pollution',
+
+            // Образование
+            'образование': 'education school university',
+            'школа': 'school education children',
+            'университет': 'university college education',
+            'студенты': 'students university education',
+            'учеба': 'study education learning',
+            'экзамен': 'exam test education',
+            'дети': 'children kids family',
+
+            // Технологии
+            'технологии': 'technology innovation digital',
+            'ИИ': 'artificial intelligence AI technology',
+            'компьютер': 'computer technology digital',
+            'интернет': 'internet technology digital',
+            'смартфон': 'smartphone mobile technology',
+            'приложение': 'app mobile technology',
+            'искусственный интеллект': 'artificial intelligence AI',
+            'инновации': 'innovation technology',
+
+            // Общество и политика
+            'дебаты': 'debate discussion politics',
+            'политика': 'politics government society',
+            'выборы': 'elections voting politics',
+            'правительство': 'government politics official',
+            'закон': 'law legal government',
+
+            // Люди и социум
+            'молодежь': 'youth young people',
+            'семья': 'family people home',
+            'работа': 'work office business',
+            'бизнес': 'business office corporate',
+            'деньги': 'money finance business',
+            'стартап': 'startup business',
+            'платформа': 'platform technology',
+
+            // Культура и развлечения
+            'культура': 'culture art tradition',
+            'искусство': 'art culture creative',
+            'музыка': 'music concert performance',
+            'театр': 'theater performance culture',
+            'кино': 'cinema movie entertainment',
+            'фестиваль': 'festival celebration culture',
+
+            // Транспорт
+            'транспорт': 'transport traffic urban',
+            'автомобиль': 'car vehicle traffic',
+            'автобус': 'bus public transport',
+            'метро': 'subway metro transport',
+            'дорога': 'road traffic transport',
+
+            // Еда и рестораны
+            'еда': 'food restaurant cooking',
+            'ресторан': 'restaurant food dining',
+            'кафе': 'cafe coffee restaurant',
+            'готовка': 'cooking food kitchen',
+
+            // Погода и время года
+            'зима': 'winter snow cold',
+            'лето': 'summer sun hot',
+            'весна': 'spring flowers nature',
+            'осень': 'autumn fall leaves',
+            'дождь': 'rain weather storm',
+            'снег': 'snow winter cold'
         };
 
         let translatedQuery = query.toLowerCase();
+
+        // Более умный перевод - ищем точные совпадения слов
         Object.entries(translations).forEach(([ru, en]) => {
-            translatedQuery = translatedQuery.replace(new RegExp(ru, 'gi'), en);
+            const regex = new RegExp(`\\b${ru}\\b`, 'gi');
+            translatedQuery = translatedQuery.replace(regex, en);
         });
 
         return translatedQuery;

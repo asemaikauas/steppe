@@ -16,7 +16,7 @@ export class ArticleController {
     // POST /generate - принимает URL новости, помещает задачу в очередь
     async generateVideo(req: Request, res: Response): Promise<void> {
         try {
-            const { url } = req.body;
+            const { url, force = false } = req.body;
 
             if (!url) {
                 res.status(400).json({
@@ -37,14 +37,22 @@ export class ArticleController {
 
             // Проверяем, есть ли уже такая задача
             const existingJob = await Job.findOne({ url });
-            if (existingJob) {
+            if (existingJob && !force) {
                 res.json({
                     jobId: (existingJob._id as string).toString(),
                     status: existingJob.status,
-                    message: 'Job already exists',
-                    videoUrl: existingJob.videoUrl
+                    message: 'Job already exists. Use "force: true" to regenerate.',
+                    videoUrl: existingJob.videoUrl,
+                    canRegenerate: true
                 });
                 return;
+            }
+
+            // Если force=true и задача существует, удаляем старую задачу
+            if (existingJob && force) {
+                console.log(`🔄 Force regeneration requested for job ${existingJob._id}`);
+                await Job.findByIdAndDelete(existingJob._id);
+                console.log(`🗑️ Deleted existing job for URL: ${url}`);
             }
 
             // Создаем новую задачу
@@ -60,11 +68,14 @@ export class ArticleController {
                 console.error('Background processing error:', error);
             });
 
+            const responseMessage = force ? 'Video regeneration started' : 'Video generation started';
+
             res.status(201).json({
                 jobId: (job._id as string).toString(),
                 status: 'pending',
-                message: 'Video generation started',
-                estimatedTime: '2-5 minutes'
+                message: responseMessage,
+                estimatedTime: '2-5 minutes',
+                regenerated: !!force
             });
 
         } catch (error: any) {
@@ -139,6 +150,56 @@ export class ArticleController {
 
         } catch (error: any) {
             console.error('Get all jobs error:', error);
+            res.status(500).json({
+                error: 'Internal server error',
+                message: error.message
+            });
+        }
+    }
+
+    // POST /regenerate/:jobId - принудительно пересоздать видео по ID задачи
+    async regenerateVideo(req: Request, res: Response): Promise<void> {
+        try {
+            const { jobId } = req.params;
+
+            const existingJob = await Job.findById(jobId);
+            if (!existingJob) {
+                res.status(404).json({
+                    error: 'Job not found',
+                    message: 'Invalid job ID'
+                });
+                return;
+            }
+
+            console.log(`🔄 Regenerating video for job ${jobId}`);
+            console.log(`📰 URL: ${existingJob.url}`);
+
+            // Сбрасываем статус на pending и очищаем результаты
+            await Job.findByIdAndUpdate(jobId, {
+                status: 'pending',
+                error: null,
+                videoUrl: null,
+                videoPath: null,
+                audioPath: null,
+                updatedAt: new Date()
+            });
+
+            // Запускаем обработку в фоне
+            this.processVideoGeneration(jobId).catch(error => {
+                console.error('Background regeneration error:', error);
+            });
+
+            res.json({
+                jobId: jobId,
+                status: 'pending',
+                message: 'Video regeneration started',
+                url: existingJob.url,
+                estimatedTime: '2-5 minutes',
+                regenerated: true
+            });
+
+        } catch (error: any) {
+            console.error('Regenerate video error:', error);
             res.status(500).json({
                 error: 'Internal server error',
                 message: error.message

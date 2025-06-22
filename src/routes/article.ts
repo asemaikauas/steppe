@@ -23,6 +23,11 @@ router.get('/jobs', (req, res) => {
     articleController.getAllJobs(req, res);
 });
 
+// POST /regenerate/:jobId - принудительно пересоздать видео
+router.post('/regenerate/:jobId', (req, res) => {
+    articleController.regenerateVideo(req, res);
+});
+
 // POST /test-media - тестирование поиска медиа
 router.post('/test-media', (req, res) => {
     articleController.testMediaSearch(req, res);
@@ -135,6 +140,82 @@ router.post('/test-subtitles', async (req: Request, res: Response) => {
         console.error('Test subtitle generation error:', error);
         res.status(500).json({
             error: 'Subtitle generation failed',
+            message: error.message
+        });
+    }
+});
+
+// Тестовый эндпоинт для полного пайплайна с водяным знаком
+router.post('/test-full-pipeline', async (req: Request, res: Response) => {
+    try {
+        const { url } = req.body;
+
+        if (!url) {
+            return res.status(400).json({
+                error: 'Missing required field',
+                message: 'Please provide article URL'
+            });
+        }
+
+        console.log('🚀 Testing full pipeline with STEPPE watermark...');
+
+        const controller = new ArticleController();
+
+        // Запускаем полный пайплайн
+        const result = await controller.generateVideo(req, res);
+
+        // Результат уже отправлен через res в контроллере
+
+    } catch (error: any) {
+        console.error('Test full pipeline error:', error);
+        res.status(500).json({
+            error: 'Full pipeline test failed',
+            message: error.message
+        });
+    }
+});
+
+// Тестовый эндпоинт для демонстрации регенерации
+router.post('/test-regeneration', async (req: Request, res: Response) => {
+    try {
+        const testUrl = 'https://the-steppe.com/gorod/issledovanie-dva-chasa-v-nedelyu-na-prirode-vedut-k-uluchsheniyu-zdorovya';
+
+        console.log('🧪 Testing regeneration functionality...');
+
+        // 1. Обычный запрос (должен показать предупреждение)
+        console.log('1️⃣ Testing normal request...');
+
+        // 2. Принудительная регенерация
+        console.log('2️⃣ Testing force regeneration...');
+
+        res.json({
+            message: 'Regeneration test endpoints',
+            examples: {
+                normal: {
+                    method: 'POST',
+                    url: '/api/article/generate',
+                    body: { url: testUrl },
+                    description: 'Shows warning if job exists'
+                },
+                force: {
+                    method: 'POST',
+                    url: '/api/article/generate',
+                    body: { url: testUrl, force: true },
+                    description: 'Forces regeneration by deleting old job'
+                },
+                regenerateById: {
+                    method: 'POST',
+                    url: '/api/article/regenerate/:jobId',
+                    description: 'Regenerates existing job by ID'
+                }
+            },
+            testUrl: testUrl
+        });
+
+    } catch (error: any) {
+        console.error('Test regeneration error:', error);
+        res.status(500).json({
+            error: 'Test failed',
             message: error.message
         });
     }
