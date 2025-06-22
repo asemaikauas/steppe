@@ -222,7 +222,7 @@ export class VideoService {
                 `-i "${params.backgroundPath}"`,
                 `-i "${params.audioPath}"`,
                 `-t ${params.duration}`,
-                `-filter_complex "[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}[scaled];[scaled]subtitles='${params.subtitlePath}':force_style='FontSize=18,PrimaryColour=&Hffffff,OutlineColour=&H000000,Outline=1,Bold=0,MarginV=60'[video]"`,
+                `-filter_complex "[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}[scaled];[scaled]subtitles='${params.subtitlePath}':force_style='FontName=Arial,FontSize=14,PrimaryColour=&Hffffff,OutlineColour=&H000000,Outline=1,Bold=0,MarginV=120,MarginL=40,Alignment=1'[video]"`,
                 '-map "[video]"',
                 '-map 1:a',
                 '-c:v libx264',
@@ -344,6 +344,314 @@ export class VideoService {
         } catch (error: any) {
             console.error('Cleanup error:', error);
             return 0;
+        }
+    }
+
+    async assembleDynamicVideo(options: VideoAssemblyOptions & {
+        keyPoints: string[];
+        contentSegments?: Array<{
+            text: string;
+            searchQuery: string;
+            duration: number;
+        }>;
+    }): Promise<VideoResult> {
+        const videoId = uuidv4();
+        console.log(`\n🎬 ===== DYNAMIC VIDEO ASSEMBLY STARTED =====`);
+        console.log(`🎯 Video ID: ${videoId}`);
+        console.log(`🎵 Audio: ${options.audioPath}`);
+        console.log(`⏱️ Duration: ${options.audioDuration}s`);
+
+        try {
+            // 1. Анализируем скрипт и создаем сегменты
+            const segments = await this.createContentSegments(options.script, options.keyPoints, options.audioDuration);
+
+            // 2. Скачиваем медиа для каждого сегмента
+            const mediaSegments = await this.downloadSegmentMedia(segments, videoId);
+
+            // 3. Подготавливаем субтитры
+            let subtitlePath: string | null = null;
+            if (options.addSubtitles !== false) {
+                subtitlePath = await this.generateSubtitles(options.script, videoId);
+            }
+
+            // 4. Собираем динамическое видео
+            const outputPath = await this.assembleDynamicVideoWithFFmpeg({
+                mediaSegments,
+                audioPath: options.audioPath,
+                subtitlePath,
+                duration: options.audioDuration,
+                resolution: options.resolution || '1080x1920',
+                outputFormat: options.outputFormat || 'mp4',
+                videoId
+            });
+
+            // 5. Получаем информацию о готовом видео
+            const videoInfo = await this.getVideoInfo(outputPath);
+
+            // 6. Очищаем временные файлы
+            const tempFiles = [subtitlePath, ...mediaSegments.map(s => s.localPath)];
+            await this.cleanupTempFiles(tempFiles);
+
+            console.log(`✅ DYNAMIC VIDEO ASSEMBLY COMPLETED`);
+            console.log(`📁 Output: ${outputPath}`);
+            console.log(`📏 Resolution: ${videoInfo.resolution}`);
+            console.log(`⏱️ Duration: ${videoInfo.duration}s`);
+            console.log(`🎬 Segments: ${segments.length} content changes`);
+            console.log(`🎬 ===== END DYNAMIC VIDEO ASSEMBLY =====\n`);
+
+            return {
+                videoPath: outputPath,
+                duration: videoInfo.duration,
+                size: videoInfo.size,
+                resolution: videoInfo.resolution,
+                hasSubtitles: !!subtitlePath
+            };
+
+        } catch (error: any) {
+            console.error(`❌ Dynamic video assembly failed for ${videoId}:`, error);
+            throw new Error(`Dynamic video assembly failed: ${error.message}`);
+        }
+    }
+
+    private async createContentSegments(script: string, keyPoints: string[], totalDuration: number): Promise<Array<{
+        text: string;
+        searchQuery: string;
+        startTime: number;
+        duration: number;
+    }>> {
+        console.log(`🔍 Creating content segments...`);
+
+        // Очищаем текст
+        const cleanScript = script.replace(/[^\w\sА-Яа-яё.,!?-]/g, '').trim();
+        const sentences = cleanScript.split(/[.!?]+/).filter(s => s.trim().length > 0);
+
+        const segmentDuration = 4; // 4 секунды на сегмент
+        const segments: Array<{
+            text: string;
+            searchQuery: string;
+            startTime: number;
+            duration: number;
+        }> = [];
+
+        for (let i = 0; i < sentences.length && i * segmentDuration < totalDuration; i++) {
+            const sentence = sentences[i].trim();
+
+            // Генерируем поисковый запрос для сегмента
+            let searchQuery = this.extractSearchQuery(sentence, keyPoints);
+
+            segments.push({
+                text: sentence,
+                searchQuery,
+                startTime: i * segmentDuration,
+                duration: Math.min(segmentDuration, totalDuration - (i * segmentDuration))
+            });
+        }
+
+        console.log(`✅ Created ${segments.length} content segments`);
+        segments.forEach((seg, i) => {
+            console.log(`   ${i + 1}. "${seg.text.substring(0, 50)}..." → "${seg.searchQuery}"`);
+        });
+
+        return segments;
+    }
+
+    private extractSearchQuery(text: string, keyPoints: string[]): string {
+        // Словарь для перевода ключевых слов
+        const translations: { [key: string]: string } = {
+            'здоровье': 'health',
+            'спорт': 'sport fitness',
+            'бег': 'running jogging',
+            'жара': 'summer heat',
+            'сердце': 'heart cardio',
+            'тренировка': 'workout training',
+            'питание': 'nutrition food',
+            'исследование': 'research science',
+            'ученые': 'scientists research',
+            'алматы': 'almaty city',
+            'казахстан': 'kazakhstan',
+            'загрязнение': 'pollution environment',
+            'воздух': 'air pollution',
+            'образование': 'education school',
+            'технологии': 'technology innovation',
+            'ИИ': 'artificial intelligence AI',
+            'дебаты': 'debate discussion',
+            'студенты': 'students university',
+            'молодежь': 'youth people'
+        };
+
+        // Ищем ключевые слова в тексте
+        const words = text.toLowerCase().split(' ');
+        let searchTerms: string[] = [];
+
+        // Добавляем переводы найденных ключевых слов
+        words.forEach(word => {
+            if (translations[word]) {
+                searchTerms.push(translations[word]);
+            }
+        });
+
+        // Добавляем релевантные keyPoints
+        keyPoints.forEach(point => {
+            const pointLower = point.toLowerCase();
+            if (text.toLowerCase().includes(pointLower) || words.some(word => pointLower.includes(word))) {
+                if (translations[pointLower]) {
+                    searchTerms.push(translations[pointLower]);
+                } else {
+                    searchTerms.push(point);
+                }
+            }
+        });
+
+        // Fallback на общие термины
+        if (searchTerms.length === 0) {
+            searchTerms = ['lifestyle', 'modern life', 'city'];
+        }
+
+        return searchTerms.slice(0, 3).join(' '); // Максимум 3 термина
+    }
+
+    private async downloadSegmentMedia(segments: Array<{
+        text: string;
+        searchQuery: string;
+        startTime: number;
+        duration: number;
+    }>, videoId: string): Promise<Array<{
+        searchQuery: string;
+        localPath: string;
+        startTime: number;
+        duration: number;
+    }>> {
+        console.log(`📥 Downloading media for segments...`);
+
+        const mediaSegments: Array<{
+            searchQuery: string;
+            localPath: string;
+            startTime: number;
+            duration: number;
+        }> = [];
+
+        for (let i = 0; i < segments.length; i++) {
+            const segment = segments[i];
+            const segmentPath = path.join(this.tempDir, `segment_${videoId}_${i}.mp4`);
+
+            try {
+                // Простая заглушка - копируем одно и то же видео
+                // В реальности здесь будет интеграция с MediaService для поиска релевантного контента
+                await execAsync(`cp test_video.mp4 "${segmentPath}"`);
+
+                mediaSegments.push({
+                    searchQuery: segment.searchQuery,
+                    localPath: segmentPath,
+                    startTime: segment.startTime,
+                    duration: segment.duration
+                });
+
+                console.log(`   ✅ Segment ${i + 1}: "${segment.searchQuery}" → ${path.basename(segmentPath)}`);
+            } catch (error) {
+                console.error(`   ❌ Failed to download for "${segment.searchQuery}":`, error);
+                // Fallback - используем предыдущий сегмент или базовое видео
+                const fallbackPath = i > 0 ? mediaSegments[i - 1].localPath : 'test_video.mp4';
+                await execAsync(`cp "${fallbackPath}" "${segmentPath}"`);
+
+                mediaSegments.push({
+                    searchQuery: segment.searchQuery,
+                    localPath: segmentPath,
+                    startTime: segment.startTime,
+                    duration: segment.duration
+                });
+            }
+        }
+
+        return mediaSegments;
+    }
+
+    private async assembleDynamicVideoWithFFmpeg(params: {
+        mediaSegments: Array<{
+            localPath: string;
+            startTime: number;
+            duration: number;
+        }>;
+        audioPath: string;
+        subtitlePath: string | null;
+        duration: number;
+        resolution: string;
+        outputFormat: string;
+        videoId: string;
+    }): Promise<string> {
+        console.log(`🔧 Assembling dynamic video with FFmpeg...`);
+
+        const outputPath = path.join(this.outputDir, `dynamic_${params.videoId}.${params.outputFormat}`);
+        const [width, height] = params.resolution.split('x');
+
+        // Создаем concat файл для FFmpeg
+        const concatFile = path.join(this.tempDir, `concat_${params.videoId}.txt`);
+        let concatContent = '';
+
+        for (const segment of params.mediaSegments) {
+            concatContent += `file '${segment.localPath}'\n`;
+            concatContent += `duration ${segment.duration}\n`;
+        }
+
+        fs.writeFileSync(concatFile, concatContent);
+
+        // Команда FFmpeg для динамического видео
+        let ffmpegCommand = [
+            'ffmpeg -y',
+            '-f concat -safe 0',
+            `-i "${concatFile}"`,
+            `-i "${params.audioPath}"`,
+            `-t ${params.duration}`,
+            `-vf "scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}"`,
+            '-c:v libx264',
+            '-c:a aac',
+            '-b:v 2M',
+            '-b:a 128k',
+            '-preset fast',
+            '-movflags +faststart'
+        ];
+
+        // Добавляем субтитры если есть
+        if (params.subtitlePath) {
+            ffmpegCommand = [
+                'ffmpeg -y',
+                '-f concat -safe 0',
+                `-i "${concatFile}"`,
+                `-i "${params.audioPath}"`,
+                `-t ${params.duration}`,
+                `-filter_complex "[0:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height}[scaled];[scaled]subtitles='${params.subtitlePath}':force_style='FontName=Arial,FontSize=14,PrimaryColour=&Hffffff,OutlineColour=&H000000,Outline=1,Bold=0,MarginV=120,MarginL=40,Alignment=1'[video]"`,
+                '-map "[video]"',
+                '-map 1:a',
+                '-c:v libx264',
+                '-c:a aac',
+                '-b:v 2M',
+                '-b:a 128k',
+                '-preset fast',
+                '-movflags +faststart'
+            ];
+        }
+
+        ffmpegCommand.push(`"${outputPath}"`);
+
+        const command = ffmpegCommand.join(' ');
+        console.log(`🎬 FFmpeg dynamic command: ${command.substring(0, 100)}...`);
+
+        try {
+            await execAsync(command);
+
+            if (!fs.existsSync(outputPath)) {
+                throw new Error('FFmpeg did not produce output file');
+            }
+
+            console.log(`✅ Dynamic video assembled successfully`);
+
+            // Очищаем concat файл
+            fs.unlinkSync(concatFile);
+
+            return outputPath;
+
+        } catch (error: any) {
+            console.error('FFmpeg dynamic error:', error);
+            throw new Error(`FFmpeg dynamic processing failed: ${error.message}`);
         }
     }
 } 

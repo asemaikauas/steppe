@@ -412,4 +412,69 @@ export class ArticleController {
             });
         }
     }
+
+    // POST /test-dynamic-video - тестирование динамических кадров
+    async testDynamicVideo(req: Request, res: Response): Promise<void> {
+        try {
+            const {
+                audioPath,
+                script,
+                keyPoints = [],
+                title = "Тест динамического видео",
+                duration = 15
+            } = req.body;
+
+            if (!audioPath || !script) {
+                res.status(400).json({
+                    error: 'Missing required fields',
+                    message: 'Please provide audioPath and script'
+                });
+                return;
+            }
+
+            console.log('\n🎬 ===== TESTING DYNAMIC VIDEO =====');
+
+            // Создаем мок-объект MediaItem для фонового видео
+            const mockVideo = {
+                id: 999999,
+                url: 'file:///Users/asemaikauasperseverance/stepp/newsTok/backend/test_video.mp4',
+                previewUrl: 'file:///Users/asemaikauasperseverance/stepp/newsTok/backend/test_video.mp4',
+                type: 'video' as const,
+                duration: duration,
+                tags: [],
+                quality: 'hd' as const
+            };
+
+            const videoResult = await this.videoService.assembleDynamicVideo({
+                backgroundVideo: mockVideo,
+                audioPath: audioPath,
+                audioDuration: duration,
+                script: script,
+                title: title,
+                tags: ['test'],
+                keyPoints: keyPoints,
+                resolution: '1080x1920',
+                outputFormat: 'mp4',
+                addSubtitles: true
+            });
+
+            res.json({
+                success: true,
+                videoPath: videoResult.videoPath,
+                duration: videoResult.duration,
+                size: videoResult.size,
+                resolution: videoResult.resolution,
+                hasSubtitles: videoResult.hasSubtitles,
+                sizeMB: (videoResult.size / 1024 / 1024).toFixed(2),
+                message: 'Dynamic video assembly completed successfully'
+            });
+
+        } catch (error: any) {
+            console.error('Test dynamic video error:', error);
+            res.status(500).json({
+                error: 'Dynamic video assembly failed',
+                message: error.message
+            });
+        }
+    }
 } 

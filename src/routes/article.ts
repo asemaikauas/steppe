@@ -31,6 +31,11 @@ router.post('/test-video', (req, res) => {
     articleController.testVideoAssembly(req, res);
 });
 
+// POST /test-dynamic-video - тестирование динамических кадров
+router.post('/test-dynamic-video', (req, res) => {
+    articleController.testDynamicVideo(req, res);
+});
+
 // Тестовый endpoint для проверки синтеза речи
 router.post('/test-voice', async (req, res) => {
     try {
